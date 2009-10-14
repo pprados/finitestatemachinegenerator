@@ -1,0 +1,192 @@
+/* Copyright (C) 1999 Free Software Foundation, Inc.
+   Author : philippe@prados-obj.nom.fr <Ph. Prados>
+
+This file is part of fsmg.
+
+Fsmg is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2, or (at your option)
+any later version.
+
+Fsmg is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with Fsmg; see the file COPYING.  If not, write to
+the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  
+*/
+
+$define$
+$var$
+
+#include <stdio.h>
+
+/***************/
+/* print_state */
+/***************/
+
+static void	print_state()
+{
+/***************************************************************************
+   Declare un tableau de chaine de caracteres, puis affiche toutes les
+   chaines du tableau.
+****************************************************************************/
+#define FSM_LSTATE(state,num) #state,
+
+static const char* str_state[]=
+{
+	$lstate$
+};
+
+	int	i;
+
+	printf("Table of states :\n"
+		   "---------------\n");
+	for (i=0;i<sizeof(str_state)/sizeof(*str_state);i++)
+	{ 
+		printf("%15s, ",str_state[i]);
+		if (i % 4==3) putchar('\n');
+	}
+	printf("\n");
+}
+
+/**************/
+/* print_event */
+/**************/
+
+static void	print_event()
+
+{
+/***************************************************************************
+   Affiche directement toutes les chaines de caracteres a l'aide de printf.
+****************************************************************************/
+	printf("Table of events :\n"
+		   "---------------\n");
+	#define FSM_LEVENT(event,num)	  printf("%10s = %d,\t",#event,num);
+	$levent$
+	printf("\n\n");
+}
+
+/*******************/
+/* print_translate */
+/*******************/
+
+static void	print_translate()
+{
+/***************************************************************************
+   Declare un tableau de structure, et affiche les correspondances de chaque
+   conversion.
+****************************************************************************/
+	#if (FSM_NBTRANS>0)
+	#define FSM_TRANSLATE(PUB,LOC) {#PUB,LOC},
+	static struct 
+	{ 
+		char* public;
+		int   local;
+	} tbl_trans[]=
+    {
+		$translate$
+    };
+	int		i;
+
+	printf("Translate table :\n"
+		   "---------------\n");
+	for (i=0;i<sizeof(tbl_trans)/sizeof(*tbl_trans);i++)
+	{ 
+		printf("%10s => %d,\t",tbl_trans[i].public,tbl_trans[i].local);
+		if (i % 4 == 3) printf("\n");
+	}
+	printf("\n\n");
+	#endif
+}
+
+/***************/
+/* print_table */
+/***************/
+
+static void	print_table()
+
+{
+
+/***************************************************************************
+   Declare un tableau de short et l'affiche ligne a ligne.
+****************************************************************************/
+	#ifndef FSM_ARRTYPE
+	#define FSM_ARRTYPE	short			/* Tableau d'entier */
+	#endif
+	#define FSM_ARR(EXE)	EXE,		/* avec numero d'exe */
+	static FSM_ARRTYPE	table[]=
+    {
+		$table$
+    };
+
+	static const char *str_state[]=
+	{
+		$lstate$
+	};
+
+	int i,j;
+
+	printf("Table :\n"
+		   "-----\n");
+	printf("                +");
+	for (j=0;j<FSM_NBEVENT;j++) printf("--+");
+	putchar('\n');
+
+	printf("                | G|");
+	for (i=1;i<FSM_NBEVENT;i++) printf("%2d|",i);
+	putchar('\n');
+
+	printf("                +");
+	for (j=0;j<FSM_NBEVENT;j++) printf("--+");
+	putchar('\n');
+
+	for (i=0;i<FSM_NBSTATE;i++)
+	{ 
+		printf("%-15.15s ",str_state[i]);
+		putchar('|');
+		for (j=0;j<FSM_NBEVENT;j++)
+		{ 
+			printf("%2ld|",(long)table[i*FSM_NBEVENT+j]);
+		}
+		putchar('\n');
+	}
+	printf("                +");
+	for (j=0;j<FSM_NBEVENT;j++) printf("--+");
+	printf("\n\n");
+}
+
+/********/
+/* main */
+/********/
+
+int	main()
+{
+/***************************************************************************
+   Affiche les paramatres declares par FSM et appelle les fonctions.
+****************************************************************************/
+	printf("STAT-FSM v1.0 for " FSM_NAME "\n\n");
+	printf("\tUse FSMG version %d.%d\n",FSM_MAJOR,FSM_MINOR);
+	printf("\tNb state       : %d\t",FSM_NBSTATE);
+	printf("\tNb event       : %d\n",FSM_NBEVENT);
+	printf("\tNb exec        : %d\t",FSM_NBEXEC);
+	printf("\tNb translate   : %d\n",FSM_NBTRANS);
+	printf("\tMaximum extern : %d\n",FSM_MAXEXTERN);
+	#ifdef FSM_USE_ERROR
+	printf("\tPossible use error\n");
+	#else
+	printf("\tNo error possible in table\n");
+	#endif
+	#ifdef FSM_USE_NOTHING
+	printf("\tUse \"nothing exec\"\n");
+	#endif
+	putchar('\n');
+	print_state();
+	print_event();
+	print_translate();
+	print_table();
+	return(0);
+}
+

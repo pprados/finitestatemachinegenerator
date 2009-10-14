@@ -1,0 +1,237 @@
+%{
+/* Copyright (C) 1999 Free Software Foundation, Inc.
+   Author : philippe@prados-obj.nom.fr <Ph. Prados>
+
+This file is part of fsmg.
+
+Fsmg is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2, or (at your option)
+any later version.
+
+Fsmg is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with Fsmg; see the file COPYING.  If not, write to
+the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  
+*/
+
+#include <stdio.h>
+
+#define FSM_BEFORE fsm_event=getc(stdin);/* Lecture d'un evenement */
+
+%}
+
+%start		$IN_C	/* Demarre a l'etat $IN_C  */
+%priority   event	/* Priorite aux evenements */
+%extern		EOF		/* EOF est un #define      */
+
+%%
+
+/***********/
+/* default */
+/***********/
+
+/* Par defaut, reste a l'etat courant */
+		: /* Vide */
+		{ 
+			putchar($event$);            /* Recopie l'evenement */
+		}
+		;
+
+/*******/
+/* EOF */
+/*******/
+
+/* Si c'est la fin du fichier, retourne a l'appelant */
+
+		: EOF
+		{ 
+			return(-1);                 /* Fin du fichier, sort */
+		}
+		;
+
+/**********/
+/* escape */
+/**********/
+
+/* Detection de sequence escape ? */
+		: '\\'                          /* Si caractere d'escape... */
+		{ 
+			char  c;
+
+			putchar($event$);           /* Recopie le caractere */
+			c=getc(stdin);              /* Lit le caractere suivant */
+			if (c==EOF) return(-1);     /* Si fin, sort */
+			putchar(c);                 /* Recopie le caractere */
+		}
+		;
+
+
+/*********/
+/* $IN_C */
+/*********/
+
+/* Indique que nous sommes dans du code C */
+
+$IN_C           : '"'					/* Si guillemet entre */
+		{ 
+			$state$=$IN_STR;            /* dans l'etat $IN_STR */
+			putchar($event$);           /* Recopie le caractere */
+		}
+		| '\''                          /* Si apostrophe entre */
+		{ 
+			$state$=$IN_CHAR;           /* dans l'etat $IN_CHAR */
+			putchar($event$);           /* Recopie le caractere */
+		}
+		| '/'                           /* Si Slash entre */
+		{ 
+			$state$=$IN_QCOMMENT;       /* dans l'etat $IN_QCOMMENT */
+		}
+		;
+
+/***********/
+/* $IN_STR */
+/***********/
+
+/* Indique que nous sommes dans une chaine de caracteres */
+
+$IN_STR         : '"'					/* Si guillemet... */
+		{ 
+			$state$=$IN_C;              /* retourne a l'etat $IN_C */
+			putchar($event$);           /* Recopie le caractere */
+		}
+		;
+
+/************/
+/* $IN_CHAR */
+/************/
+
+/* Indique que nous sommes dans un caractere */
+
+$IN_CHAR        : '\''                  /* Si apostrophe... */
+		{ 
+			$state$=$IN_C;              /* retourne a l'etat $IN_C */
+			putchar($event$);           /* Recopie le caractere */
+		}
+		;
+
+/****************/
+/* $IN_QCOMMENT */
+/****************/
+
+/* Cherche a savoir si nous sommes dans un commentaire */
+
+$IN_QCOMMENT    : '/'                   /* Detection double slash, */
+		{ 
+			$state$=$IN_CPPCOMMENT;     /* commentaire C++ */
+		}
+		| /* Vide */                    /* Sinon, le caractere pre- */
+		{ 
+			$state$=$IN_C;              /* cedant etait division. */
+			putchar('/');               /* L'affiche et remet le */
+			ungetc($event$,stdin);      /* caractere courant */
+		}
+		;
+
+$IN_QCOMMENT : '*'						/* Debut de commentaire */
+		{ 
+			$state$=$IN_COMMENT;        /* commentaire C */
+		}
+		;
+
+/******************/
+/* $IN_CPPCOMMENT */
+/******************/
+
+/* Est dans un commentaire style C++ */
+
+$IN_CPPCOMMENT  : '\n'                  /* Fin du commentaire C++ */
+		{ 
+			$state$=$IN_C;              /* Retourne a l'etat $IN_C */
+			putchar($event$);           /* Copie le caractere */
+		}
+		| '\\'                          /* Si caractere d'escape... */
+		{ 
+			if (getc(stdin)==EOF)       /* ne l'affiche pas. */
+				return(-1);				/* Fin si EOF */
+		}
+		| /* Vide */                    /* Pas de traitement pour les */
+		;                               /* autre caracteres */
+
+/***************/
+/* $IN_COMMENT */
+/***************/
+
+/* Cherche la fin du commentaire C */
+
+$IN_COMMENT     : '*'                   /* Fin du commentaire ? */
+		{ 
+			$state$=$IN_FCOMMENT;
+		}
+		| '\\'                          /* Si caractere d'escape... */
+		{ 
+			if (getc(stdin)==EOF)        /* ne l'affiche pas. */
+				return(-1);             /* Fin si EOF */
+		}
+		| /* Vide */                    /* Pas de traitement pour les */
+		;                               /* autres caracteres */
+
+/****************/
+/* $IN_FCOMMENT */
+/****************/
+
+/* Est-ce la fin d'un commentaire, le debut d'un autre, ou rien ? */
+
+$IN_FCOMMENT    : '/'                   /* Fin du commentaire */
+		{ 
+			$state$=$IN_C;
+		}
+		| '*'                           /* Resynchronise */
+		| '\\'                          /* Si caractere d'escape... */
+		{ 
+			if (getc(stdin)==EOF)
+				return(-1);             /* Sortie si EOF */
+		}
+		| /* Vide */
+		{ 
+			$state$=$IN_COMMENT;        /* Pas la fin */
+		}
+		;
+
+%%
+
+/********/
+/* main */
+/********/
+
+static char outbuf[BUFSIZ];             /* Buffer de sortie */
+
+int main(int argc, char* argv[])
+{ 
+	if (argc<2)
+	{ 
+		fprintf(stderr,"Usage : CCOMMENT <file in> [<file out>]\n");
+		return(1);
+	}
+	if (freopen(argv[1],"r",stdin)==NULL)
+	{ 
+		fprintf(stderr,"File \"%s\" not found !\n",argv[1]);
+		return(1);
+	}
+	if (argc>2)
+	{ 
+		if (freopen(argv[2],"w",stdout)==NULL)
+		{ 
+			fprintf(stderr,"File \"%s\" can't create !\n",argv[2]);
+			return(1);
+		}
+	}
+	else
+		setbuf(stdout,outbuf);          /* Buffer pout la "sortie" */
+	fsm(0,0);                           /* Appel l'automate */
+	return(0);                          /* Tous est Ok, salut... */
+}

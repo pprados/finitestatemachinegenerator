@@ -1,0 +1,280 @@
+		 /* ----- Section declarative ----- */
+%{
+static short	max_month[12]={31,28,31,30,31,30,31,31,30,31,30,31};
+static char		buf[9]; 		/* Buffer de la date */
+static short	mem_state[9];	/* Buffer des etats */
+static short	pos=0;			/* Position courante du caractere */
+%}
+
+%%	/* ----- Section definition de l'automate ----- */
+
+/***********/
+/* $MONTH1 */
+/***********/
+
+/* - Attend le premier chiffre du mois - */
+
+$MONTH1 : '0' '1'
+	{ 
+		mem_state[pos]=$state$;	/* Mois possible sur deux chiffres */
+		buf[pos++]=$event$;
+		putchar($event$);
+		return($MONTH2);
+	}
+	| '2' '3' '4' '5' '6' '7' '8' '9'
+	{ 
+		mem_state[pos]=$state$;	/* Mois sur un chiffre */
+		buf[pos++]=$event$;
+		putchar($event$);
+		return($SEPAR1);
+	}
+	| '\b' 127
+	{ 
+		putchar('\a');			/* Premier caractere */
+		return($state$);
+	}
+	;
+
+/***********/
+/* $MONTH2 */
+/***********/
+
+/* - Attend le deuxieme chiffre du mois ou un separateur - */
+
+$MONTH2 : '1' '2' '3' '4' '5' '6' '7' '8' '9'
+	{ 
+		short		month;
+
+		mem_state[pos]=$state$;
+		buf[pos++]=$event$;
+		buf[pos]='\0';
+		month=atoi(buf);
+		if (month<13)
+		{ 
+			putchar($event$);
+			return($SEPAR1);
+		}
+		putchar('\a');
+		pos--;
+		return($state$);
+	}
+	;
+
+/***********/
+/* $SEPAR1 */
+/***********/
+
+/* - Attend le premier separateur - */
+
+$MONTH2,$SEPAR1 : ' ' '/' '.' ':'
+	{ 
+		mem_state[pos]=$state$;
+		buf[pos++]=$event$;
+		if (atoi(buf)!=0)			/* Mois a zero ? */
+		{ 
+			putchar($event$);
+			return($DAY1);
+		}
+		putchar('\a');
+		pos--;
+		return($state$);
+	}
+	;
+
+/*********/
+/* $DAY1 */
+/*********/
+
+/* - Attend le premier caractere du jour de la date - */
+
+$DAY1 : '1' '2' '3'
+	{ 
+		mem_state[pos]=$state$;		/* Jour possible sur deux chiffres */
+		buf[pos++]=$event$;
+		putchar($event$);
+		return($DAY2);
+	}
+	| '4' '5' '6' '7' '8' '9'
+	{ 
+		mem_state[pos]=$state$;		/* Jour sur un chiffre */
+		buf[pos++]=$event$;
+		putchar($event$);
+		return($SEPAR2);
+	}
+	;
+
+/*********/
+/* $DAY2 */
+/*********/
+
+/* - Attend le deuxieme caractere du jour ou un separateur - */
+
+$DAY2 : '0' '1' '2' '3' '4' '5' '6' '7' '8' '9'
+	{ 
+		mem_state[pos]=$state$;
+		buf[pos++]=$event$;
+		buf[pos]='\0';
+		if (atoi(&buf[pos-2])<=max_month[atoi(buf)-1])
+		{ 
+			putchar($event$);
+			return($SEPAR2);
+		}
+		putchar('\a');
+		pos--;
+		return($state$);
+	}
+	;
+
+/***********/
+/* $SEPAR2 */
+/***********/
+
+/* - Attends le deuxieme separateur - */
+
+$DAY2,$SEPAR2 : ' ' '/' '.' ':'
+	{ 
+		mem_state[pos]=$state$;
+		buf[pos++]=$event$;
+		putchar($event$);
+		return($YEAR1);
+	}
+	;
+
+/**********/
+/* $YEAR1 */
+/**********/
+
+/* - Attend le premier chiffre de l'annee - */
+
+$YEAR1 : '0' '1' '2' '3' '4' '5' '6' '7' '8' '9'
+	{ 
+		mem_state[pos]=$state$;
+		buf[pos++]=$event$;
+		putchar($event$);
+		return($YEAR2);
+	}
+	;
+
+/**********/
+/* $YEAR2 */
+/**********/
+
+/* - Attend le deuxieme chiffre de l'annee - */
+
+$YEAR2 : '0' '1' '2' '3' '4' '5' '6' '7' '8' '9'
+	{ 
+		mem_state[pos]=$state$;
+		buf[pos++]=$event$;
+		putchar($event$);
+		return($RETURN);
+	}
+	;
+
+/***********/
+/* $RETURN */
+/***********/
+
+/* - Attend un retour chariot - */
+
+$RETURN : '\r'
+	{ 
+		buf[pos]='\0';
+		return(STATE_ERROR);			/* Sort de l'automate */
+	}
+	;
+
+	: /* Vide */
+	{ 
+		putchar('\a');
+		return($state$);
+	}
+	;
+
+/*************/
+/* Backspace */
+/*************/
+
+/* - Traite le caractere BackSpace -*/
+
+	: '\b' 127
+	{ 
+		printf("\b \b");				/* Efface le dernier caractere */
+		return(mem_state[--pos]);
+	}
+	;
+
+/**********/
+/* Escape */
+/**********/
+
+/* - Traite le caractere ESCAPE - */
+
+	: '\x1B'
+	{ 
+		return(STATE_RESERVED-1);		/* Abandon */
+	}
+	;
+
+%%		/* ----- Section C classique ----- */
+
+/*-----------------------*/
+#ifndef _MSC_VER
+#include <stdlib.h>
+#include <fcntl.h>
+#include <termio.h>
+
+struct termio tbufsave;
+
+static void resetraw()
+{
+	ioctl(0,TCSETAF,&tbufsave);
+	fcntl(0, F_SETFL, 0);
+}
+
+static int setraw() 
+{ 
+	struct termio tbuf; 
+	if (ioctl(0,TCGETA,&tbuf)==-1) return -1; 
+	tbufsave=tbuf;
+	tbuf.c_iflag  &= ~ ( ICRNL  | IXON ); 
+	tbuf.c_lflag  &= ~ ( ICANON  | ECHO ); 
+	tbuf.c_cc[VMIN] = 0;
+	tbuf.c_cc[VTIME] = 2; /* 2 ms and timer fires */ 
+	if (ioctl(0,TCSETAF,&tbuf) == -1) return -1; 
+	fcntl(0, F_SETFL, O_NONBLOCK);
+	atexit(resetraw);
+} 
+
+static int getch()
+{
+	int c;
+
+	while ((c = getchar()) == -1);
+	return c;
+}
+#else
+#include <conio.h>
+#endif
+/*-----------------------*/
+
+/********/
+/* main */
+/********/
+
+int	main()
+{ 
+	FSM_STATETYPE etat;
+
+#ifndef _MSC_VER
+	setraw();
+#endif
+
+	printf("Enter date (MM/DD/YY) :");
+	for (etat=0;etat>=0;)
+	{ 
+		etat=fsm(etat,(FSM_EVENTTYPE)getch());
+	}
+	if (etat!=STATE_RESERVED-1) printf("\nDate=%s\n",buf);
+	else printf("\nbye\n");
+	return 0;
+}

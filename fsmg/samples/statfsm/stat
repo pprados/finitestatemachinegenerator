@@ -1,0 +1,6 @@
+#! /bin/sh
+fsmg -wk stat -o tmp.c $*
+make tmp
+tmp
+rm tmp.o tmp.c tmp
+

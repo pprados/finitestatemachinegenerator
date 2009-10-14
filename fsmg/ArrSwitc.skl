@@ -1,0 +1,255 @@
+/* Copyright (C) 1999 Free Software Foundation, Inc.
+   Author : philippe@prados-obj.nom.fr <Ph. Prados>
+
+This file is part of fsmg.
+
+Fsmg is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2, or (at your option)
+any later version.
+
+Fsmg is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with Fsmg; see the file COPYING.  If not, write to
+the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  
+*/
+
+/* Array of interger used with a swith. */
+/* Use $define$, $header$, $var$, $local_event$, $lstate$, */
+/*	   $levent$, $array$, $translate$, $end$.		       */
+
+/*
+FSM_MAIN	Nom de la fonction d'automate
+FSM_FNTYPE	Type de la fonction d'automate
+FSM_STATETYPE	Type d'un etat
+FSM_EVENTTYPE	Type d'un evenement
+FSM_BEFORE	Fonction avant traitement
+FSM_AFTER	Fonction apres traitement
+FSM_PERROR	Affichage d'une erreur
+FSM_PRINT_TRACE Affiche de la trace
+
+FSM_ARRTYPE	Type du tableau d'entier
+FSM_ARRTYPE	Type des tableaux
+
+FSM_SIZE	A definir si priorite Taille
+FSM_TIME	A definir si priotite Vitesse
+FSM_DEBUG	A definir si test de la validite des parametres
+FSM_TRACE	A definir avec FSM_DEBUG si memorisation de la trace
+
+*/
+
+#if (_MSC_VER>=8)
+#pragma warning(disable:4102)
+#endif
+
+#define FSM_ARRSWITCH
+
+$define$
+$header$
+$var$
+$local_event$
+
+/* ------------------------ Parametres generaux -------------------------- */
+
+#define STATE_ERROR	(-1)	/* Valeur de l'etat si erreur */
+#define STATE_RESERVED	(-2)	/* Valeur reserve */
+
+#ifndef FSM_MAIN
+#define FSM_MAIN	fsm	/* Nom de l'automate */
+#endif
+#ifndef FSM_STATETYPE
+#define FSM_STATETYPE	short	/* Type du state */
+#endif
+#ifndef FSM_EVENTTYPE
+#define FSM_EVENTTYPE	short	/* Type de l'event */
+#endif
+#ifndef FSM_FNTYPE
+#define FSM_FNTYPE		/* Attribut de l'automate */
+#endif
+#ifndef FSM_ARRTYPE
+#define FSM_ARRTYPE		/* Attribut des tableaux */	
+#endif
+#ifndef FSM_BEFORE
+#define FSM_BEFORE		/* Avant l'execution d'une fonction */
+#endif
+#ifndef FSM_AFTER
+#define FSM_AFTER		/* Apres l'execution d'une fonction */
+#endif
+
+/* ------------------------ Gestion d'erreurs ----------------------------- */
+#ifndef FSM_PERROR
+#ifdef __cplusplus
+extern "C" {
+#include <stdio.h>
+}
+#else
+#include <stdio.h>
+#endif
+#define FSM_PERROR(num,str)	\
+  fprintf(stderr,"FSMG Run-time error %d in file " FSM_NAME " : %s\n",num,str)
+#endif
+
+#if defined(FSM_DEBUG) && defined(FSM_TRACE)
+
+#define FSM_LSTATE(state,num)	#state,
+#define FSM_LEVENT(event,num)	#event,
+
+static struct 
+{ 
+	FSM_STATETYPE	state;
+	FSM_EVENTTYPE	event;
+} fsm_buf[FSM_TRACE];				/* Buffer de trace */
+static int	   fsm_nb_buf=0;		/* Nombre d'elements dans la trace */
+static const char* FSM_ARRTYPE fsm_str_state[]= /* Chaine pour les states */
+{
+  $lstate$
+};
+static const char* FSM_ARRTYPE fsm_str_event[]=	/* Chaine pour les events */
+{
+	$levent$
+};
+
+#ifndef FSM_PRINT_TRACE
+#ifdef __cplusplus
+extern "C" {
+#include <ctype.h>
+}
+#else
+#include <ctype.h>
+#endif
+
+/* - Affichage de la trace memoire - */
+
+static void fsm_print_trace()			/* Affichage de la trace */
+{ 
+	int i;
+
+	puts("Trace:");
+	for (i=FSM_TRACE-fsm_nb_buf;i<FSM_TRACE;i++)
+	{ 
+		printf("[%8s",fsm_str_state[fsm_buf[i].state]);
+		if (fsm_buf[i].event>=FSM_MAXEXTERN)
+			printf("-%-8s]\n",fsm_str_event[fsm_buf[i].event-FSM_MAXEXTERN]);
+		else
+			printf((isalpha(fsm_buf[i].event) || isdigit(fsm_buf[i].event))
+				? "-'%c'     ]\n"
+				: "-%04X    ]\n",fsm_buf[i].event);
+	}
+}
+
+#define FSM_PRINT_TRACE fsm_print_trace()
+#endif
+#else
+#define FSM_PRINT_TRACE
+#endif
+
+/*--------------- Declaration pour le squelette ARRSWITCH -----------------*/
+
+/* - Conversion des evenements "%extern" - */
+#ifndef FSM_TRANSLATE
+#define FSM_TRANSLATE(PUB,LOC) case PUB: fsm_cevent=FSM_MAXEXTERN+LOC; break;
+#endif
+
+#ifndef FSM_ARRTYPE
+#include <limits.h>
+#if   (FSM_NBEXEC<=UCHAR_MAX)
+#define FSM_ARRTYPE	unsigned char
+#elif (FSM_NBEXEC<=USHRT_MAX)
+#define FSM_ARRTYPE	unsigned short
+#elif (FSM_NBEXEC<=UINT_MAX)
+#define FSM_ARRTYPE	unsigned int
+#else
+#define FSM_ARRTYPE	unsigned long
+#endif
+#endif
+
+/* Tableau de l'automate */
+#define FSM_ARR(EXE)	EXE,
+
+static FSM_ARRTYPE	FSM_ARRTYPE fsm_tbl_fsm[FSM_NBSTATE][FSM_NBEVENT]=
+{
+	$array$
+};
+
+/*------------------------------ L'automate -------------------------------*/
+/************/
+/* FSM_MAIN */
+/************/
+
+FSM_STATETYPE FSM_FNTYPE FSM_MAIN(FSM_STATETYPE fsm_state,
+				  FSM_EVENTTYPE fsm_event)
+
+{
+#if (FSM_NBTRANS>0)				/* Si conversion... */
+	FSM_EVENTTYPE	fsm_cevent;
+#else
+#define fsm_cevent fsm_event
+#endif
+
+	while (fsm_state>=0)			/* Tant que pas d'erreur */
+	{ 
+		FSM_BEFORE;
+
+/*--------------------------- Trace en memoire ----------------------------*/
+#if defined(FSM_DEBUG) && defined(FSM_TRACE)
+		{ 
+			memcpy(&fsm_buf[0],&fsm_buf[1],sizeof(fsm_buf)-sizeof(*fsm_buf));
+			fsm_buf[FSM_TRACE-1].state=fsm_state;
+			fsm_buf[FSM_TRACE-1].event=fsm_event;
+			if (fsm_nb_buf!=FSM_TRACE) fsm_nb_buf++;
+		}
+#endif
+
+/*-------------- Verifie les parametres state et les event -----------------*/
+#ifdef FSM_DEBUG
+		if ((fsm_state>=FSM_NBSTATE) ||
+			((fsm_event>FSM_MAXEXTERN)
+			&& (fsm_event>=FSM_MAXEXTERN+FSM_NBEVENT)))
+		{ 
+			FSM_PRINT_TRACE; FSM_PERROR(0,"unknow state or event");
+			return(STATE_ERROR);
+		}
+#endif
+
+/*---------------------- Translation des events ----------------------------*/
+#if (FSM_NBTRANS>0)				/* Si conversion... */
+		switch(fsm_event)		/* suivant l'event */
+		{
+			$translate$
+
+			default :
+				fsm_cevent=(fsm_event>=FSM_MAXEXTERN) ? fsm_event : FSM_MAXEXTERN;
+				break;
+		}
+#endif
+#line 229	/*** ATTENTION : Adapter le numero de ligne ***/
+
+/*------------------- Tableau d'entier suivi d'un switch ------------------*/
+		switch(fsm_tbl_fsm[fsm_state][fsm_cevent-FSM_MAXEXTERN])
+		{
+#ifdef FSM_USE_ERROR
+			case 0 : /* Error */
+				FSM_PRINT_TRACE; FSM_PERROR(0,"unknow state or event");
+				return(STATE_ERROR);
+#endif
+
+#ifdef FSM_USE_NOTHING
+			case 1 : /* Nothing */
+				break;
+#endif
+
+			$exec$
+
+		}
+
+/*------------------------- Suite de la bloucle ---------------------------*/
+		FSM_AFTER;
+	}
+	return(STATE_ERROR);
+}
+
+$end$

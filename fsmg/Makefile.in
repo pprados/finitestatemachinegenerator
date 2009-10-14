@@ -1,0 +1,308 @@
+# @(#) $Header: Makefile.in $ (LBL)
+# @configure_input@
+
+@SET_MAKE@
+
+# Possible values for DEFS:
+#
+
+DEFS = @DEFS@ $(ADDDEFS)
+#DEFS = @DEFS@ -DNDEBUG $(ADDDEFS)
+CFLAGS = @CFLAGS@
+CPPFLAGS = -I. -I$(srcdir) @CPPFLAGS@  $(DEFS)
+LDFLAGS = @LDFLAGS@
+EXEEXT = @EXEEXT@
+
+# Installation targeting.  Files will be installed under the tree
+# rooted at prefix.  fsmg will be installed in bindir.
+# 
+
+prefix = @prefix@
+exec_prefix = @exec_prefix@
+bindir = @bindir@
+
+# Current version generate with fsmg
+FSMG = fsmg$(EXEEXT)
+FSMG_FLAGS=-w
+
+# Old version generate with flex
+OFSMG = ofsmg$(EXEEXT)
+
+SHELL  = /bin/sh
+srcdir = @srcdir@
+VPATH  = @srcdir@
+
+YACC = @YACC@
+YACC_FLAGS=-d
+LEX  = @LEX@
+CC   = @CC@
+
+INSTALL         = @INSTALL@
+INSTALL_DATA    = @INSTALL_DATA@
+INSTALL_PROGRAM = @INSTALL_PROGRAM@
+
+# You normally do not need to modify anything below this point.
+# ------------------------------------------------------------
+
+.c.o:
+	$(CC) -c $(CPPFLAGS) $(CFLAGS) $<
+
+HEADERS = all.h autolex.h autoyac.h autoyacc.h clear.h conv.h convexe.h debug.h error.h \
+		  config.h conf.h \
+		  readske.h skeleton.h symbol.h tools.h translate.h ytree.h \
+		  debug.h getopt.h
+
+SKE_SOURCES  = All.skl FnArr.skl Switc.skl ArrFnArr.skl ArrSwitc.skl 
+BASE_SOURCES = fsmg.c autolex.l autoyacc.y \
+               clear.c conv.c error.c readske.c symbol.c tools.c translate.c \
+		getopt.c splitpat.c\
+		$(SKE_SOURCES)
+LEX_SOURCES  = convexe.l   skeleton.l
+FSM_SOURCES  = convexe.fsm skeleton.fsm
+OLD_SOURCES  = $(BASE_SOURCES) $(LEX_SOURCES)
+SOURCES      = $(BASE_SOURCES) $(FSM_SOURCES)
+
+GENERATE_SOURCES=autoyacc.c autoyacc.h autolex.c \
+	All.c FnArr.c Switc.c ArrFnArr.c ArrSwitc.c \
+	convexe.c skeleton.c
+
+OBJECTS = fsmg.o \
+	clear.o conv.o error.o symbol.o tools.o \
+	autoyacc.o autolex.o \
+	convexe.o skeleton.o readske.o translate.o \
+	All.o FnArr.o Switc.o ArrFnArr.o ArrSwitc.o \
+	getopt.o splitpat.o
+
+DISTSAMPLES = \
+	samples/ccomment.fsm samples/idate.fsm samples/time1.fsm \
+	samples/time2.fsm samples/time3.fsm \
+	samples/statfsm/stat.bat samples/statfsm/stat \
+	samples/statfsm/stat.skl
+
+DISTDOC = fsmg.doc
+DISTPDF = fsmg.pdf
+
+DISTFILES = README NEWS COPYING INSTALL \
+	$(HEADERS) $(BASE_SOURCES) $(LEX_SOURCES) $(FSM_SOURCES) \
+	$(GENERATE_SOURCES) \
+	configure.in conf.in Makefile.in mkskel.sh \
+	install.sh mkinstalldirs configure aclocal.m4 \
+	configure.bat config.ms conf.ms conf.h.in \
+	$(DISTSAMPLES) $(DISTDOC)
+
+EXEDISTFILES = README NEWS COPYING \
+	$(FSMG) \
+	$(DISTSAMPLES) $(SKE_SOURCES) $(DISTPDF)
+
+DIST_NAME = fsmg
+
+all: $(FSMG)
+
+$(FSMG): .bootstrap $(OBJECTS)
+	$(CC) $(CFLAGS) -o $(FSMG) $(LDFLAGS) $(OBJECTS)
+
+# The first version use flex, but the next use himself
+.bootstrap: 
+	@echo "*** Make $(OFSMG) an old Lex version, for generate $(FSMG)"
+	touch  $(LEX_SOURCES) readske.c translate.c
+	$(MAKE) ADDDEFS="-DVLEX" USELEX="1" $(OFSMG)
+	touch .bootstrap
+	@echo "*** Now, generate $(FSMG) version with old lex version"
+	touch  $(FSM_SOURCES) readske.c translate.c
+	$(MAKE) all
+	cp $(FSMG) $(OFSMG)
+	@echo The next one use himself
+
+# generate first version with Lex
+$(OFSMG): $(OBJECTS) $(OLD_SOURCES)
+	$(CC) $(CFLAGS) -o $(OFSMG) $(LDFLAGS) $(OBJECTS)
+
+$(srcdir)/autoyacc.c $(srcdir)/autoyacc.h: autoyacc.y
+	$(YACC) $(YACC_FLAGS) -o autoyacc.c $(srcdir)/autoyacc.y 
+
+autoyacc.h: autoyacc.c
+
+$(srcdir)/autolex.c: autolex.l
+	$(LEX) $(LEX_FLAGS) -L -o$(srcdir)/autolex.c $(srcdir)/autolex.l 
+
+$(srcdir)/All.c: All.skl mkskel.sh
+	$(SHELL) $(srcdir)/mkskel.sh $(srcdir)/All >$(srcdir)/All.c
+
+$(srcdir)/FnArr.c: FnArr.skl mkskel.sh
+	$(SHELL) $(srcdir)/mkskel.sh $(srcdir)/FnArr >$(srcdir)/FnArr.c
+
+$(srcdir)/Switc.c: Switc.skl mkskel.sh
+	$(SHELL) $(srcdir)/mkskel.sh $(srcdir)/Switc >$(srcdir)/Switc.c
+
+$(srcdir)/ArrFnArr.c: ArrFnArr.skl mkskel.sh
+	$(SHELL) $(srcdir)/mkskel.sh $(srcdir)/ArrFnArr >$(srcdir)/ArrFnArr.c
+
+$(srcdir)/ArrSwitc.c: ArrSwitc.skl mkskel.sh
+	$(SHELL) $(srcdir)/mkskel.sh $(srcdir)/ArrSwitc >$(srcdir)/ArrSwitc.c
+
+$(srcdir)/convexe.c: convexe.fsm convexe.l 
+	if [ x"$(USELEX)" = x ]; then ./$(OFSMG) $(FSMG_FLAGS) -o convexe.c convexe.fsm ; fi
+	if [ x"$(USELEX)" = x"1" ]; then $(LEX) $(LEX_FLAGS) -Pconv -oconvexe.c convexe.l ; fi
+
+$(srcdir)/skeleton.c: skeleton.fsm skeleton.l 
+	if [ x"$(USELEX)" = x ]; then ./$(OFSMG) $(FSMG_FLAGS) -o skeleton.c skeleton.fsm ; fi
+	if [ x"$(USELEX)" = x"1" ]; then $(LEX) $(LEX_FLAGS) -Pske -oskeleton.c skeleton.l ; fi
+
+all.h: config.h debug.h symbol.h
+config.h: 
+
+autoyacc.o:   autoyacc.c    all.h ytree.h autoyac.h autolex.h error.h tools.h 
+autolex.o:    autolex.c     all.h ytree.h autoyac.h autolex.h error.h
+clear.o:      clear.c       all.h
+conv.o:       conv.c        all.h conv.h error.h autolex.h convexe.h tools.h
+convexe.o:    convexe.c     all.h convexe.h error.h
+error.o:      error.c       all.h error.h
+fsmg.o:       fsmg.c        all.h tools.h error.h translate.h
+getopt.o:     getopt.c
+readske.o:    readske.c     all.h readske.h
+skeleton.o:   skeleton.c    all.h autoyac.h conv.h skeleton.h readske.h tools.h error.h
+splitpat.o:   splitpat.c
+symbol.o:     symbol.c      all.h
+tools.o:      tools.c       all.h tools.h
+translate.o:  translate.c   all.h translate.h getopt.h autolex.h autoyac.h skeleton.h conv.h convexe.h clear.h error.h tools.h
+All.o:		  All.c
+FnArr.o:      FnArr.c
+Switc.o:      Switc.c
+ArrFnArr.o:   ArrFnArr.c
+ArrSwitc.o:   ArrSwitc.c
+
+clean-info:
+
+test: check
+check: $(FSMG)
+	./$(FSMG) -o samples -m0 samples/time3
+	@echo "Check successful"
+
+bigcheck: check
+	./$(FSMG) -wo samples -m0                        samples/ccomment
+	$(CC) $(CFLAGS) -o samples/ccomment $(LDFLAGS) samples/ccomment.c
+	./$(FSMG) -wo samples -m0 -DFSM_ARRSWITCH        samples/ccomment
+	$(CC) $(CFLAGS) -o samples/ccomment $(LDFLAGS) samples/ccomment.c
+	./$(FSMG) -wo samples -m0 -DFSM_FNARR            samples/ccomment
+	$(CC) $(CFLAGS) -o samples/ccomment $(LDFLAGS) samples/ccomment.c
+	./$(FSMG) -wo samples -m0 -DFSM_ARRFNARR         samples/ccomment
+	$(CC) $(CFLAGS) -o samples/ccomment $(LDFLAGS) samples/ccomment.c
+	./$(FSMG) -wo samples -m0 -DFSM_SWITCH           samples/ccomment
+	$(CC) $(CFLAGS) -o samples/ccomment $(LDFLAGS) samples/ccomment.c
+	./$(FSMG) -wo samples -m1                        samples/ccomment
+	$(CC) $(CFLAGS) -o samples/ccomment $(LDFLAGS) samples/ccomment.c
+	./$(FSMG) -wo samples -m2                        samples/ccomment
+	$(CC) $(CFLAGS) -o samples/ccomment $(LDFLAGS) samples/ccomment.c
+	./$(FSMG) -wo samples -m3                        samples/ccomment
+	$(CC) $(CFLAGS) -o samples/ccomment $(LDFLAGS) samples/ccomment.c
+	./$(FSMG) -wo samples -m4                        samples/ccomment
+	$(CC) $(CFLAGS) -o samples/ccomment $(LDFLAGS) samples/ccomment.c
+	./$(FSMG) -wo samples -kAll.skl                  samples/ccomment
+	$(CC) $(CFLAGS) -o samples/ccomment $(LDFLAGS) samples/ccomment.c
+	./$(FSMG) -wo samples -kAll.skl -DFSM_ARRSWITCH  samples/ccomment
+	$(CC) $(CFLAGS) -o samples/ccomment $(LDFLAGS) samples/ccomment.c
+	./$(FSMG) -wo samples -kAll.skl -DFSM_FNARR      samples/ccomment
+	$(CC) $(CFLAGS) -o samples/ccomment $(LDFLAGS) samples/ccomment.c
+	./$(FSMG) -wo samples -kAll.skl -DFSM_ARRFNARR   samples/ccomment
+	$(CC) $(CFLAGS) -o samples/ccomment $(LDFLAGS) samples/ccomment.c
+	./$(FSMG) -wo samples -kAll.skl -DFSM_SWITCH     samples/ccomment
+	$(CC) $(CFLAGS) -o samples/ccomment $(LDFLAGS) samples/ccomment.c
+	./$(FSMG) -wo samples -kArrSwitc.skl             samples/ccomment
+	$(CC) $(CFLAGS) -o samples/ccomment $(LDFLAGS) samples/ccomment.c
+	./$(FSMG) -wo samples -kFnArr.skl                samples/ccomment
+	$(CC) $(CFLAGS) -o samples/ccomment $(LDFLAGS) samples/ccomment.c
+	./$(FSMG) -wo samples -kArrFnArr.skl             samples/ccomment
+	$(CC) $(CFLAGS) -o samples/ccomment $(LDFLAGS) samples/ccomment.c
+	./$(FSMG) -wo samples -kSwitc.skl                samples/ccomment
+	$(CC) $(CFLAGS) -o samples/ccomment $(LDFLAGS) samples/ccomment.c
+	@echo "All checks successful"
+
+install: $(FSMG) installdirs
+	$(INSTALL_PROGRAM) "$(FSMG)" "$(bindir)/$(FSMG)"
+	$(INSTALL_DATA) "$(srcdir)/All.skl"			"$(bindir)/skl/All.skl"
+	$(INSTALL_DATA) "$(srcdir)/FnArr.skl"			"$(bindir)/skl/FnArr.skl"
+	$(INSTALL_DATA) "$(srcdir)/Switc.skl"			"$(bindir)/skl/Switc.skl"
+	$(INSTALL_DATA) "$(srcdir)/ArrFnArr.skl"		"$(bindir)/skl/ArrFnArr.skl"
+	$(INSTALL_DATA) "$(srcdir)/ArrSwitc.skl"		"$(bindir)/skl/ArrSwitc.skl"
+
+installdirs:
+	$(SHELL) $(srcdir)/mkinstalldirs $(bindir) $(bindir)/skl
+
+uninstall:
+	rm -f "$(bindir)/$(FSMG)"
+	rm -f "$(bindir)/skl/All.skl" "$(bindir)/skl/FnArr.skl" "$(bindir)/skl/Switc.skl" "$(bindir)/skl/ArrFnArr.skl" "$(bindir)/ArrSwitc.skl"
+
+tags: $(SOURCES)
+	ctags $(SOURCES)
+
+TAGS: $(SOURCES)
+	etags $(SOURCES)
+
+mostlyclean:
+	rm -f a.out *.bak core *.core errs
+
+clean: mostlyclean
+	rm -f  *.o $(GENERATE_SOURCES)
+
+bootclean : mostlyclean clean
+	rm -f .bootstrap $(OFSMG)
+	touch $(LEX_SOURCES) readske.c translate.c
+
+
+distclean: clean
+	rm -f .bootstrap $(FSMG) $(OFSMG) tags TAGS Makefile config.status \
+		conf.h stamp-h config.log config.cache
+
+maintener-clean: distclean
+
+dist: all $(DISTFILES)
+	$(MAKE) DIST_NAME=fsmg-1.1.0-0 dist2
+
+dist2:
+	@rm -rf $(DIST_NAME)
+	@rm -f $(DIST_NAME).tar $(DIST_NAME).tar.gz
+	@mkdir $(DIST_NAME)
+	tar cf - $(DISTFILES) | (cd $(DIST_NAME) && tar xfB -)
+	@chmod +w $(DIST_NAME)/Makefile.in
+	tar chf $(DIST_NAME).tar $(DIST_NAME)
+	gzip <$(DIST_NAME).tar >$(DIST_NAME).tar.gz
+	@rm -f $(DIST_NAME).tar
+
+distbin: $(EXEDISTFILES)
+	$(MAKE) DISTBIN_NAME=binfsmg-1.1.0-0 distbin2
+
+distbin2:
+	@rm -rf $(DISTBIN_NAME)
+	@rm -f $(DISTBIN_NAME).tar $(DISTBIN_NAME).tar.gz
+	@mkdir $(DISTBIN_NAME)
+	tar cf - $(EXEDISTFILES) | (cd $(DISTBIN_NAME) && tar xfB -)
+	tar chf $(DISTBIN_NAME).tar $(DISTBIN_NAME)
+	gzip <$(DISTBIN_NAME).tar >$(DISTBIN_NAME).tar.gz
+	@rm -f $(DISTBIN_NAME).tar
+
+# For an explanation of the following Makefile rules, see node
+# `Automatic Remaking' in GNU Autoconf documentation.
+
+$(srcdir)/configure conf.in: configure.in
+	cd $(srcdir) && autoconf
+
+$(srcdir)/config.h.in: stamp-h.in
+$(srcdir)/stamp-h.in: configure.in
+		cd $(srcdir) && autoheader
+		echo timestamp > $(scrdir)/stamp-h.in
+
+$(srcdir)/conf.h: stamp-h
+
+stamp-h: conf.h.in config.status
+	./config.status
+	echo timestamp >stamp-h
+
+Makefile: $(srcdir)/Makefile.in config.status
+	./config.status
+
+config.status: configure
+	./config.status --recheck
+
+# Tell versions [3.59,3.63) of GNU make not to export all variables.
+# Otherwise a system limit (for SysV at least) may be exceeded.
+.NOEXPORT:

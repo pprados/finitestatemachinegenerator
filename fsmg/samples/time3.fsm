@@ -1,0 +1,205 @@
+		 /* ----- Section declarative ----- */
+%{
+static char		buf[6];	/* Buffer de l'heure */
+static short	mem[6]; /* Trace des etats */
+static short	pos=0;	/* Position courante du caractere */
+%}
+
+%%	  /* ----- Section definition de l'automate ----- */
+
+/**********/
+/* $HOUR1 */
+/**********/
+
+$HOUR1	: '0' '1' '2'
+	{ 
+		mem[pos]=$state$;
+		putchar(buf[pos++]=$event$);
+		return($HOUR2);
+	}
+	| '3' '4' '5' '6' '7' '8' '9'
+	{
+		mem[pos]=$state$;
+		putchar(buf[pos++]=$event$);
+		return($SEPAR);
+	}
+	;
+
+/**********/
+/* $HOUR2 */
+/**********/
+
+$HOUR2	: '0' '1' '2' '3' '4' '5' '6' '7' '8' '9'
+	{ 
+		if ((buf[0]=='2') && ($event$>'3'))
+		{ 
+			putchar('\a');
+			return($state$);
+		}
+		else
+		{ 
+			mem[pos]=$state$;
+			putchar(buf[pos++]=$event$);
+			return($SEPAR);
+		}
+	}
+	;
+
+/**********/
+/* $SEPAR */
+/**********/
+
+$HOUR2,$SEPAR	: ':'
+	{ 
+		mem[pos]=$state$;
+		putchar(buf[pos++]=$event$);
+		return($MIN1);
+	}
+	;
+
+/*********/
+/* $MIN1 */
+/*********/
+
+$MIN1	: '0' '1' '2' '3' '4' '5'
+	{ 
+		mem[pos]=$state$;
+		putchar(buf[pos++]=$event$);
+		return($MIN2);
+	}
+	| '6' '7' '8' '9'
+	{ 
+		mem[pos]=$state$;
+		putchar(buf[pos++]=$event$);
+		return($RETURN);
+	}
+	;
+
+/*********/
+/* $MIN2 */
+/*********/
+
+$MIN2	: '0' '1' '2' '3' '4' '5' '6' '7' '8' '9'
+	{ 
+		mem[pos]=$state$;
+		putchar(buf[pos++]=$event$);
+		return($RETURN);
+	}
+	;
+
+/***********/
+/* $RETURN */
+/***********/
+
+$MIN2,$RETURN : '\r'
+	{ 
+		buf[pos]='\0';
+		printf("\nTime=%s\n",buf);
+		return(-1);
+	}
+	;
+
+/***********/
+/* Default */
+/***********/
+
+	: /* Vide */
+	{ 
+		putchar('\a');
+		return($state$);
+	}
+	;
+
+/**********/
+/* Escape */
+/**********/
+
+/* - Traite le caractere ESCAPE - */
+
+	: '\x1B'
+	{ 
+		return(-1);		/* Abandon */
+	}
+	;
+
+/*************/
+/* BackSpace */
+/*************/
+
+/* - Traite le caractere BackSpace - */
+
+$HOUR1 : '\b' 127
+	{ 
+		putchar('\a');
+		return($state$);
+	}
+	;
+
+	: '\b' 127
+	{ 
+		printf("\b \b");
+		return(mem[--pos]);
+	}
+	;
+%%		   /* ----- Section C classique ----- */
+
+/*-----------------------*/
+#ifndef _MSC_VER
+#include <stdlib.h>
+#include <fcntl.h>
+#include <termio.h>
+
+struct termio tbufsave;
+
+static void resetraw()
+{
+	ioctl(0,TCSETAF,&tbufsave);
+	fcntl(0, F_SETFL, 0);
+}
+
+static int setraw() 
+{ 
+	struct termio tbuf; 
+	if (ioctl(0,TCGETA,&tbuf)==-1) return -1; 
+	tbufsave=tbuf;
+	tbuf.c_iflag  &= ~ ( ICRNL  | IXON ); 
+	tbuf.c_lflag  &= ~ ( ICANON  | ECHO ); 
+	tbuf.c_cc[VMIN] = 0;
+	tbuf.c_cc[VTIME] = 2; /* 2 ms and timer fires */ 
+	if (ioctl(0,TCSETAF,&tbuf) == -1) return -1; 
+	fcntl(0, F_SETFL, O_NONBLOCK);
+	atexit(resetraw);
+} 
+
+static int getch()
+{
+	int c;
+
+	while ((c = getchar()) == -1);
+	return c;
+}
+#else
+#include <conio.h>
+#endif
+/*-----------------------*/
+
+/********/
+/* main */
+/********/
+
+int		main()
+{ 
+	FSM_STATETYPE etat;
+
+#ifndef _MSC_VER
+	setraw();
+#endif
+
+	printf("Enter time (HH:MM) : ");
+	for (etat=0;etat>=0;)
+	{ 
+		etat=fsm(etat,(FSM_EVENTTYPE)getch());
+	}
+	printf("\nbye\n");
+	return 0;
+}

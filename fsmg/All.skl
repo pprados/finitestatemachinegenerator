@@ -1,0 +1,516 @@
+/* Copyright (C) 1999 Free Software Foundation, Inc.
+   Author : philippe@prados-obj.nom.fr <Ph. Prados>
+
+This file is part of fsmg.
+
+Fsmg is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2, or (at your option)
+any later version.
+
+Fsmg is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with Fsmg; see the file COPYING.  If not, write to
+the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  
+*/
+
+/* All algorithm. */
+/* Use $define$, $header$, $var$, $local_event$, $lstate$,     */
+/*     $levent$, $array$, $function$, $lfunction$, $translate$,*/
+/*     $exec$, $switch$, $end$.                                */
+
+$define$
+$header$
+$var$
+$local_event$
+
+/* ------------------ Update for implementation ---------------------- */
+
+/* --- MSDOS --- */
+#define FSM_COEFTRANS	 4	/* Taille d'une convertion */
+#define FSM_COEFSWITCH	 3	/* Taille d'un switch */
+#define FSM_COEFFN	10	/* Taille d'un appel + retour de fonction */
+
+#define FSM_SIZEOF_NEARF 2	/* Taille d'un pt de fonction _near */
+#define FSM_SIZEOF_FARF	 4	/* Taille d'un pt de fonction _far */
+#define FSM_SIZEOF_FN	 4	/* Taille d'un pt de fonction */
+
+/* - Calcule le sizeof des differents type - */
+#include <limits.h>			/* Inclusion des constantes de limite */
+#define FSM_EXP2(X) (X)*(X)	/* Operateur X2 */
+
+#define FSM_SIZEOF_UCHR	1	/* Taille d'un unsigned char */
+
+/* - Calcule la taille d'un unsigned short - */
+#if   (UCHAR_MAX==USHRT_MAX)
+#define FSM_SIZEOF_USHRT 1
+#elif (FSM_EXP2(UCHAR_MAX+1)==USHRT_MAX+1)
+#define FSM_SIZEOF_USHRT 2
+#elif (FSM_EXP2(FSM_EXP2(UCHAR_MAX+1))==USHRT_MAX+1)
+#define FSM_SIZEOF_USHRT 4
+#endif
+
+/* - Calcule la taille d'un unsigned int - */
+#if   (UCHAR_MAX==UINT_MAX)
+#define FSM_SIZEOF_UINT 1
+#elif (FSM_EXP2(UCHAR_MAX+1)==UINT_MAX+1)
+#define FSM_SIZEOF_UINT 2
+#elif (FSM_EXP2(FSM_EXP2(UCHAR_MAX+1))==UINT_MAX+1)
+#define FSM_SIZEOF_UINT 4
+#endif
+
+/* ------------------------ Parametres generaux -------------------------- */
+
+#define STATE_ERROR	(-1)	/* Valeur de l'etat si erreur */
+#define STATE_RESERVED	(-2)	/* Valeur reserve */
+
+#ifndef FSM_MAIN
+#define FSM_MAIN	fsm	/* Nom de l'automate */
+#endif
+#ifndef FSM_STATETYPE
+#define FSM_STATETYPE	short	/* Type du state */
+#endif
+#ifndef FSM_EVENTTYPE
+#define FSM_EVENTTYPE	short	/* Type de l'event */
+#endif
+#ifndef FSM_FNTYPE
+#define FSM_FNTYPE		/* Attribut de l'automate */
+#endif
+#ifndef FSM_ARRTYPE
+#define FSM_ARRTYPE		/* Attribut des tableaux */	
+#endif
+#ifndef FSM_BEFORE
+#define FSM_BEFORE		/* Avant l'execution d'une fonction */
+#endif
+#ifndef FSM_AFTER
+#define FSM_AFTER		/* Apres l'execution d'une fonction */
+#endif
+
+/* -------------------- Concatenation de chaine PP ------------------------ */
+#ifdef UNIX
+#ifdef sun
+#define fsm_name2(a,b)		a/**/b
+#else
+#ifdef	BSD
+#define fsm_name2(a,b)		a\
+b
+#else
+#define fsm_name2(a,b)		a/**/b
+#endif
+
+#endif
+#else
+#define fsm_name2(a,b)		_fsm_name2_aux(a,b)
+#define _fsm_name2_aux(a,b)	a##b
+#endif
+
+/* ------------------------ Gestion d'erreurs ----------------------------- */
+#ifndef FSM_PERROR
+#ifdef __cplusplus
+extern "C" {
+#include <stdio.h>
+}
+#else
+#include <stdio.h>
+#endif
+#define FSM_PERROR(num,str)	\
+  fprintf(stderr,"FSMG Run-time error %d in file " FSM_NAME " : %s\n",num,str)
+#endif
+
+#if defined(FSM_DEBUG) && defined(FSM_TRACE)
+
+#define FSM_LSTATE(state,num)	#state,
+#define FSM_LEVENT(event,num)	#event ,
+
+static struct 
+{ 
+	FSM_STATETYPE	state;
+	FSM_EVENTTYPE	event;
+}    fsm_buf[FSM_TRACE];			/* Buffer de trace */
+static int	   fsm_nb_buf=0;		/* Nombre d'elements dans la trace */
+static const char* FSM_ARRTYPE fsm_str_state[]= /* Chaine pour les states */
+{
+  $lstate$
+};
+static const char* FSM_ARRTYPE fsm_str_event[]=	/* Chaine pour les events */
+{
+  $levent$
+};
+
+#ifndef FSM_PRINT_TRACE
+#ifdef __cplusplus
+extern "C" {
+#include <ctype.h>
+}
+#else
+#include <ctype.h>
+#endif
+
+/* - Affichage de la trace memoire - */
+
+static void fsm_print_trace()			/* Affichage de la trace */
+{ 
+	int i;
+
+	puts("Trace:");
+	for (i=FSM_TRACE-fsm_nb_buf;i<FSM_TRACE;i++)
+	{ 
+		printf("[%8s",fsm_str_state[fsm_buf[i].state]);
+		if (fsm_buf[i].event>=FSM_MAXEXTERN)
+			printf("-%-8s]\n",fsm_str_event[fsm_buf[i].event-FSM_MAXEXTERN]);
+		else
+			printf((isalpha(fsm_buf[i].event) || isdigit(fsm_buf[i].event))
+				? "-'%c'     ]\n"
+				: "-%04X    ]\n",fsm_buf[i].event);
+	}
+}
+
+#define FSM_PRINT_TRACE fsm_print_trace()
+#endif
+#else
+#define FSM_PRINT_TRACE
+#endif
+
+/* ------------------ Calcule des differentes versions --------------------- */
+#ifndef FSM_ARRTYPE
+#include <limits.h>
+#if   (FSM_NBEXEC<=UCHAR_MAX)
+#define FSM_ARRTYPE	unsigned char
+#define FSM_SIZEOF_ARRTYPE FSM_SIZEOF_UCHR
+#elif (FSM_NBEXEC<=USHRT_MAX)
+#define FSM_ARRTYPE	unsigned short
+#define FSM_SIZEOF_ARRTYPE FSM_SIZEOF_USHRT
+#elif (FSM_NBEXEC<=UINT_MAX)
+#define FSM_ARRTYPE	unsigned int
+#define FSM_SIZEOF_ARRTYPE FSM_SIZEOF_UINT
+#endif
+#endif
+
+#ifndef FSM_LFNTYPE
+#define FSM_LFNTYPE
+#define FSM_SIZEOF_LFNTYPE FSM_SIZEOF_FN
+#endif
+
+/* Size Tableau+Size Translate+Size Switch */
+#ifndef FSM_NOSWITCH
+#define FSM_SIZE_ARRSWITCH \
+	  FSM_NBEVENT*FSM_NBSTATE*FSM_SIZEOF_ARRTYPE+\
+	  FSM_NBTRANS*FSM_COEFTRANS+\
+	  FSM_NBEXEC*FSM_COEFSWITCH
+#else
+#define FSM_SIZE_ARRSWITCH ~0U
+#endif
+
+/* Size Tableau+Size Translate+Size function */
+#define FSM_SIZE_FNARR \
+	  FSM_NBEVENT*FSM_NBSTATE*FSM_SIZEOF_LFNTYPE+\
+	  FSM_NBTRANS*FSM_COEFTRANS+\
+	  FSM_NBEXEC*FSM_COEFFN
+
+/* Size Tableau+Size Tableau function+Size Translate+Size function */
+#define FSM_SIZE_ARRFNARR \
+	  FSM_NBEVENT*FSM_NBSTATE*FSM_SIZEOF_ARRTYPE+\
+	  FSM_NBEXEC*FSM_SIZEOF_LFNTYPE+\
+	  FSM_NBTRANS*FSM_COEFTRANS+ \
+	  FSM_NBEXEC*FSM_COEFFN
+
+/* Size Switch */
+#ifndef FSM_NOSWITCH
+#define FSM_SIZE_SWITCH \
+	  FSM_NBEXEC*FSM_COEFSWITCH
+#else
+#define FSM_SIZE_SWITCH ~0U
+#endif
+
+#if (!defined(FSM_ARRSWITCH) && \
+     !defined(FSM_FNARR) &&	\
+     !defined(FSM_ARRFNARR) &&	\
+     !defined(FSM_SWITCH))
+
+/*------------------- Calcule le type le plus petit -----------------------*/
+#ifdef FSM_SIZE
+#if   ((FSM_SIZE_ARRSWITCH<FSM_SIZE_FNARR)    && \
+       (FSM_SIZE_ARRSWITCH<FSM_SIZE_ARRFNARR) && \
+       (FSM_SIZE_ARRSWITCH<FSM_SIZE_SWITCH))
+#define FSM_ARRSWITCH
+
+#elif ((FSM_SIZE_FNARR<FSM_SIZE_ARRFNARR) && \
+       (FSM_SIZE_FNARR<FSM_SIZE_SWITCH))
+#define FSM_FNARR
+
+#elif (FSM_SIZE_ARRFNARR<FSM_SIZE_SWITCH)
+#define FSM_ARRFNARR
+
+#else
+#define FSM_SWITCH
+#endif
+#endif
+
+/*------------------- Calcule le type le plus rapide ----------------------*/
+#ifdef FSM_TIME
+#if ((FSM_NBTRANS!=0) && !defined(FSM_NOSWITCH))
+#define FSM_SWITCH
+#else
+#define FSM_FNARR
+#endif
+#endif
+
+/*------------ Calcule le type de meilleur rapport taille/vitesse ---------*/
+#if (!defined(FSM_SIZE) && !defined(FSM_TIME))
+#if ((FSM_NBTRANS!=0) && !defined(FSM_NOSWITCH))
+#define FSM_SWITCH
+#elif (FSM_NBEVENT*FSM_NBSTATE*FSM_SIZEOF_LFNTYPE< \
+     (FSM_NBEVENT*FSM_NBSTATE*FSM_SIZEOF_ARRTYPE+\
+      FSM_NBEXEC*FSM_SIZEOF_NEARF))
+#define FSM_FNARR
+#else
+#define FSM_ARRFNARR
+#endif
+#endif
+#endif
+
+/* Si version MSC, affiche le squelette choisie */
+#if (defined(MSDOS) || (_MSC_VER>=6))
+#if (_MSC_VER>=8)
+#pragma warning(disable:4102)
+#endif
+#ifdef FSM_ARRSWITCH
+#pragma message("Use \"ARRSWITCH\".")
+#endif
+#ifdef FSM_FNARR
+#pragma message("Use \"FNARR\".")
+#endif
+#ifdef FSM_ARRFNARR
+#pragma message("Use \"ARRFNARR\".")
+#endif
+#ifdef FSM_SWITCH
+#pragma message("Use \"SWITCH\".")
+#endif
+#endif
+
+/*----------------- Declaration generale des squelettes -------------------*/
+
+/* - Convertion des evenements "%extern" - */
+#ifndef FSM_TRANSLATE
+#define FSM_TRANSLATE(PUB,LOC) case PUB: fsm_cevent=FSM_MAXEXTERN+LOC; break;
+#endif
+
+/*--------------- Declaration pour le squelette ARRSWITCH -----------------*/
+
+#ifdef FSM_ARRSWITCH
+#define FSM_ARR(EXE)	EXE,
+
+static FSM_ARRTYPE	FSM_ARRTYPE fsm_tbl_fsm[FSM_NBSTATE][FSM_NBEVENT]=
+{ 
+	$array$
+};
+#endif /* FSM_ARRSWITCH */
+
+/*----------------- Declaration pour le squelette FNARR -------------------*/
+
+#ifdef FSM_FNARR
+#define FSM_FNL(EXE)	fsm_name2(fsm_fn,EXE)
+
+/* - Liste des fonctions - */
+#define FSM_FTYPE FSM_STATETYPE (FSM_LFNTYPE *)(\
+			 FSM_STATETYPE* state, \
+			 FSM_EVENTTYPE* event)
+
+#define FSM_DCLFN(n) \
+  static FSM_STATETYPE FSM_LFNTYPE FSM_FNL(n)(\
+			 FSM_STATETYPE* fsm_state,\
+			 FSM_EVENTTYPE* fsm_event)
+
+#ifdef FSM_USE_ERROR
+FSM_DCLFN(0) { FSM_PRINT_TRACE; FSM_PERROR(0,"unknow state or event"); return(STATE_RESERVED); }
+#endif
+
+#ifdef FSM_USE_NOTHING
+
+FSM_DCLFN(1) { return(STATE_RESERVED); }
+#endif
+
+$function$
+
+#define FSM_ARR(EXE)	FSM_FNL(EXE),	/* avec nom des fonctions */
+
+static FSM_STATETYPE (FSM_LFNTYPE * FSM_ARRTYPE fsm_tbl_fsm[FSM_NBSTATE][FSM_NBEVENT])(
+		  FSM_STATETYPE* state,
+		  FSM_EVENTTYPE* event)=
+
+{ 
+	$array$
+};
+#endif /* FSM_FNARR */
+
+/*--------------- Declaration poue le squelette ARRFNARR ------------------*/
+
+#ifdef FSM_ARRFNARR
+#define FSM_FNL(EXE)	fsm_name2(fsm_fn,EXE)
+
+/* - Liste des fonctions - */
+#define FSM_DCLFN(n) \
+  static FSM_STATETYPE FSM_LFNTYPE FSM_FNL(n)(\
+			 FSM_STATETYPE* fsm_state,\
+			 FSM_EVENTTYPE* fsm_event)
+
+#ifdef FSM_USE_ERROR
+FSM_DCLFN(0) { FSM_PRINT_TRACE; FSM_PERROR(0,"unknow state or event"); return(STATE_RESERVED); }
+#endif
+
+#ifdef FSM_USE_NOTHING
+FSM_DCLFN(1) { return(STATE_RESERVED); }
+#endif
+
+$function$
+
+#define FSM_ARR(EXE)	EXE,		/* avec numero d'exe */
+
+#define FSM_FTYPE FSM_STATETYPE (FSM_LFNTYPE*)(  \
+			    FSM_STATETYPE* state, \
+			    FSM_EVENTTYPE* event)
+#define FSM_FN(EXE)	FSM_FNL(EXE),	/* Tableau de fonction */
+#define FSM_FNNO	0,
+
+static FSM_STATETYPE (FSM_LFNTYPE* FSM_ARRTYPE fsm_tbl_fnfsm[])(
+		    FSM_STATETYPE* state,
+		    FSM_EVENTTYPE* event)=
+{ 
+	$lfunction$
+};
+
+/* Tableau de l'automate */
+
+static FSM_ARRTYPE	FSM_ARRTYPE fsm_tbl_fsm[FSM_NBSTATE][FSM_NBEVENT]=
+{ 
+	$array$
+};
+#endif /* FSM_ARRFNARR */
+#line 394	/*** ATTENTION : Adapter le numero de ligne ***/
+
+/*------------------------------ L'automate -------------------------------*/
+/************/
+/* FSM_MAIN */
+/************/
+
+FSM_STATETYPE FSM_FNTYPE FSM_MAIN(FSM_STATETYPE fsm_state,
+				  FSM_EVENTTYPE fsm_event)
+
+{
+#if defined(FSM_FNARR) || defined(FSM_ARRFNARR)
+	FSM_STATETYPE fsm_ret;
+#endif
+
+#if defined(FSM_ARRSWITCH) || defined(FSM_FNARR) || defined(FSM_ARRFNARR)
+#if (FSM_NBTRANS>0)				/* Si conversion... */
+	FSM_EVENTTYPE	fsm_cevent;
+#else
+#define fsm_cevent fsm_event
+#endif
+#endif
+
+	while (fsm_state>=0)			/* Tant que pas d'erreur */
+	{ 
+		FSM_BEFORE;
+
+/*--------------------------- Trace en memoire ----------------------------*/
+#if defined(FSM_DEBUG) && defined(FSM_TRACE)
+		{ 
+			memcpy(&fsm_buf[0],&fsm_buf[1],sizeof(fsm_buf)-sizeof(*fsm_buf));
+			fsm_buf[FSM_TRACE-1].state=fsm_state;
+			fsm_buf[FSM_TRACE-1].event=fsm_event;
+			if (fsm_nb_buf!=FSM_TRACE) fsm_nb_buf++;
+		}
+#endif
+
+/*-------------- Verifie les parametres state et les event -----------------*/
+#ifdef FSM_DEBUG
+		if ((fsm_state>=FSM_NBSTATE) ||
+			((fsm_event>FSM_MAXEXTERN)
+			&& (fsm_event>=FSM_MAXEXTERN+FSM_NBEVENT)))
+		{ 
+			FSM_PRINT_TRACE; FSM_PERROR(0,"unknow state or event");
+			return(STATE_ERROR);
+		}
+#endif
+
+/*---------------------- Translation des events ----------------------------*/
+#if !defined(FSM_SWITCH)
+#if (FSM_NBTRANS>0)				/* Si convertion... */
+		switch(fsm_event)		/* suivant l'event */
+		{
+			$translate$
+
+			default :
+				fsm_cevent=(fsm_event>=FSM_MAXEXTERN) ? fsm_event : FSM_MAXEXTERN;
+				break;
+		}
+#endif
+#endif
+#line 454	/*** ATTENTION : Adapter le numero de ligne ***/
+
+/*------------------- Tableau d'entier suivi d'un switch ------------------*/
+#ifdef FSM_ARRSWITCH
+		switch(fsm_tbl_fsm[fsm_state][fsm_cevent-FSM_MAXEXTERN])
+		{
+#ifdef FSM_USE_ERROR
+			case 0 : /* Error */
+				FSM_PRINT_TRACE; FSM_PERROR(0,"unknow state or event");
+				return(STATE_ERROR);
+#endif
+
+#ifdef FSM_USE_NOTHING
+			case 1 : /* Nothing */
+				break;
+#endif
+
+			$exec$
+
+    }
+#endif /* FSM_ARRSWITCH */
+#line 476	/*** ATTENTION : Adapter le numero de ligne ***/
+
+/*------------- Tableau d'entier index d'un tableau de fonction -----------*/
+#ifdef FSM_ARRFNARR
+		if ((fsm_ret=fsm_tbl_fnfsm[fsm_tbl_fsm[fsm_state]
+			[fsm_cevent-FSM_MAXEXTERN]](&fsm_state,&fsm_event))!=-2)
+		{ 
+			return(fsm_ret);
+		}
+#endif /* FSM_ARRFNARR */
+
+/*----------------------------- Tableau de fonction -----------------------*/
+#ifdef FSM_FNARR
+		if ((fsm_ret=fsm_tbl_fsm[fsm_state]
+			[fsm_cevent-FSM_MAXEXTERN](&fsm_state,&fsm_event))!=-2)
+		{ 
+			return(fsm_ret);
+		}
+#endif /* FSM_FNARR */
+
+/*-------------------------- Cascade de switch ----------------------------*/
+#ifdef FSM_SWITCH
+		$switch$
+
+#ifdef FSM_USE_ERROR
+		goto next;
+    ex_0 :	/* FSM_ERROR */
+		FSM_PRINT_TRACE; FSM_PERROR(0,"unknow state or event");
+		return(STATE_ERROR);
+    next:
+#endif
+
+#endif /* FSM_SWITCH */
+#line 509	/*** ATTENTION : Adapter le numero de ligne ***/
+
+/*------------------------- Suite de la bloucle ---------------------------*/
+		FSM_AFTER;
+	}
+	return(STATE_ERROR);
+}
+
+$end$
